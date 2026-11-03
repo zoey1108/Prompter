@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>口播提词器</title>
+<meta name="description" content="免费开源的网页提词器：粘贴稿子就能滚动，按每句字数自动控速，可调字号、语速、镜像，稿子只存在本地浏览器。">
+<meta name="theme-color" content="#0f1216">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1216'/%3E%3Cpath d='M7 10h18M7 16h18M7 22h11' stroke='%23ece7de' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M3 16l3-2.6v5.2z' fill='%23e0a84b'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" media="print" onload="this.media='all'">
+<style>
+/* 布局：顶部一条控制栏，中间是滚动的稿子，屏幕三分之一处一条琥珀色阅读线，底部是进度和计时。
+   稿子存在本机浏览器的稿子库里，可以粘贴、拖文件、导入 .txt/.md 换成任何内容。
+   提词器只做深色：暗环境下录制，白底会反光刺眼。 */
+:root {
+  --ink: #0f1216;
+  --panel: #171b21;
+  --rule: #2a3039;
+  --paper: #ece7de;
+  --dim: #7c8592;
+  --past: #4a525d;
+  --amber: #e0a84b;
+  --amber-soft: rgba(224, 168, 75, 0.10);
+  --danger: #e2735f;
+  --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --fs: 56px;
+  --cols: 16;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-size: 14px; }
+html, body { height: 100%; }
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-body);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel);
+}
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* 控制栏 */
+.bar {
+  position: relative; z-index: 5;
+  background: var(--panel);
+  border-bottom: 1px solid var(--rule);
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  transition: opacity .35s ease;
+  font-size: 14px;
+}
+body.playing .bar { opacity: .14; }
+body.playing .bar:hover, body.playing .bar:focus-within { opacity: 1; }
+.brand { font-weight: 700; letter-spacing: .02em; margin-right: auto; white-space: nowrap; }
+.group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.group > .lab { color: var(--dim); font-size: 12px; letter-spacing: .08em; white-space: nowrap; }
+.btn {
+  background: transparent; border: 1px solid var(--rule); border-radius: 6px;
+  padding: 5px 10px; cursor: pointer; line-height: 1.2; min-height: 32px; white-space: nowrap;
+}
+.btn:hover { border-color: var(--dim); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.sq { width: 32px; padding: 0; }
+.btn.play {
+  background: var(--amber); color: var(--ink); border-color: var(--amber);
+  font-weight: 700; min-width: 84px;
+}
+.btn.warn { color: var(--danger); border-color: rgba(226,115,95,.45); }
+.btn.warn.armed { background: var(--danger); color: var(--ink); border-color: var(--danger); }
+.val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: center; }
+select.btn { padding-right: 6px; max-width: min(46vw, 260px); text-overflow: ellipsis; }
+select.btn option { background: var(--panel); }
+
+details.more { position: relative; }
+details.more > summary { list-style: none; }
+details.more > summary::-webkit-details-marker { display: none; }
+.panel {
+  position: absolute; right: 0; top: calc(100% + 8px);
+  width: min(320px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 16px; display: grid; gap: 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
+.row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; }
+.row label { font-size: 13px; }
+.row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--amber); }
+.row .val { min-width: 0; color: var(--dim); font-size: 13px; }
+.toggle { display: flex; align-items: center; justify-content: space-between; font-size: 13px; cursor: pointer; }
+.toggle input { accent-color: var(--amber); width: 18px; height: 18px; }
+.panel .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.keys { font-size: 12px; color: var(--dim); line-height: 1.8; border-top: 1px solid var(--rule); padding-top: 12px; }
+.keys a { color: var(--amber); overflow-wrap: anywhere; }
+.keys kbd {
+  font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--rule);
+  border-radius: 4px; padding: 0 5px; color: var(--paper);
+}
+
+/* 稿子 */
+.stage {
+  position: relative; flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none;
+  cursor: pointer;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.stage::-webkit-scrollbar { display: none; }
+.script {
+  max-width: min(100%, calc(var(--cols) * 1em));
+  margin-inline: auto;
+  font-size: var(--fs);
+}
+body.mirror .script { transform: scaleX(-1); }
+.blk { transition: color .4s ease; }
+.blk.line {
+  font-weight: 500; line-height: 1.45; margin: 0 0 .5em;
+  text-wrap: pretty; overflow-wrap: anywhere;
+}
+.blk.line.past { color: var(--past); }
+.blk.sec {
+  font-size: max(13px, .3em); letter-spacing: .14em; color: var(--amber);
+  margin: 1.4em 0 .7em; font-weight: 700;
+  display: flex; align-items: center; gap: .8em;
+}
+.blk.sec::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+.blk.sec:first-child { margin-top: 0; }
+.blk.dir {
+  font-size: max(13px, .36em); color: var(--dim); line-height: 1.5;
+  margin: 0 0 1em; padding-left: .9em; border-left: 2px solid var(--rule);
+}
+.blk.dir::before { content: "画面　"; color: var(--past); letter-spacing: .1em; }
+body.nodir .blk.dir { display: none; }
+.blk.past.sec, .blk.past.dir { opacity: .45; }
+
+/* 稿子库空了 */
+.empty {
+  position: absolute; inset: 0; display: grid; place-items: center; cursor: default;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.empty .card { max-width: 440px; display: grid; gap: 14px; text-align: left; }
+.empty h2 { margin: 0; font-size: 22px; text-wrap: balance; }
+.empty p { margin: 0; color: var(--dim); line-height: 1.7; font-size: 14px; }
+.empty .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 阅读线 */
+.guide {
+  position: fixed; left: 0; right: 0; height: 0; z-index: 3; pointer-events: none;
+  font-size: var(--fs);
+}
+.guide::before, .guide::after {
+  content: ""; position: absolute; top: calc(.725em - 9px);
+  border: 9px solid transparent;
+}
+.guide::before { left: max(4px, env(safe-area-inset-left, 0px)); border-left: 12px solid var(--amber); }
+.guide::after { right: max(4px, env(safe-area-inset-right, 0px)); border-right: 12px solid var(--amber); }
+.guide .band {
+  position: absolute; left: 0; right: 0; top: -.05em; height: 1.55em;
+  background: var(--amber-soft); border-top: 1px solid rgba(224,168,75,.25); border-bottom: 1px solid rgba(224,168,75,.25);
+}
+
+/* 倒计时 */
+.count {
+  position: fixed; inset: 0; z-index: 8; display: grid; place-items: center;
+  background: rgba(15,18,22,.72); pointer-events: none;
+  font-family: var(--font-mono); font-size: min(40vw, 260px); font-weight: 500; color: var(--amber);
+}
+
+/* 拖文件进来 */
+.drop {
+  position: fixed; inset: 0; z-index: 12; display: grid; place-items: center; pointer-events: none;
+  background: rgba(15,18,22,.86); outline: 2px dashed var(--amber); outline-offset: -14px;
+  font-size: 20px; color: var(--amber); letter-spacing: .06em;
+}
+
+/* 底部状态 */
+.status {
+  background: var(--panel); border-top: 1px solid var(--rule);
+  padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 6px; font-size: 12px; color: var(--dim);
+  transition: opacity .35s ease;
+}
+body.playing .status { opacity: .35; }
+.track { height: 3px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+.track i { display: block; height: 100%; width: 0; background: var(--amber); }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 18px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.meta b { color: var(--paper); font-weight: 500; }
+.meta .note { font-family: var(--font-body); margin-left: auto; }
+
+/* 改稿 */
+.editor {
+  position: fixed; inset: 0; z-index: 9; background: rgba(8,10,12,.82);
+  display: grid; place-items: center;
+  padding-block: 24px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.editor .box {
+  width: min(780px, 100%); max-height: 100%; min-height: 0; box-sizing: border-box;
+  display: grid; grid-template-rows: auto auto 1fr auto auto; gap: 12px;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 18px;
+}
+.editor h2 { margin: 0; font-size: 16px; }
+.editor .hint { margin: 6px 0 0; font-size: 13px; color: var(--dim); line-height: 1.7; }
+.editor .hint code {
+  font-family: var(--font-body); color: var(--paper); background: var(--ink);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px;
+}
+.editor input[type=text] {
+  width: 100%; box-sizing: border-box; min-height: 38px;
+  background: var(--ink); border: 1px solid var(--rule); border-radius: 8px; padding: 6px 12px;
+}
+.editor textarea {
+  width: 100%; min-height: 40vh; height: 100%; resize: vertical; box-sizing: border-box;
+  background: var(--ink); color: var(--paper); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 12px; font: 15px/1.7 var(--font-body);
+}
+.editor textarea.over { border-color: var(--amber); }
+.editor .info {
+  display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--dim);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.editor .info .msg { font-family: var(--font-body); color: var(--amber); }
+.editor .info .msg.bad { color: var(--danger); }
+.editor .acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.editor .acts .spacer { margin-right: auto; }
+
+@media (max-width: 640px) {
+  .bar { gap: 8px 10px; }
+  .group > .lab { display: none; }
+  .meta .note { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar, .status, .blk { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="bar" id="bar">
+  <div class="brand">口播提词器</div>
+  <button class="btn play" id="play" type="button">▶ 开始</button>
+  <div class="group">
+    <span class="lab">稿子</span>
+    <select class="btn" id="pick" aria-label="选择稿子"></select>
+    <button class="btn" id="editBtn" type="button">改稿</button>
+    <button class="btn" id="newBtn" type="button">＋ 新稿</button>
+  </div>
+  <div class="group" aria-label="字号">
+    <span class="lab">字号</span>
+    <button class="btn sq" id="fsDown" type="button" aria-label="字号调小">A−</button>
+    <span class="val" id="fsVal">56</span>
+    <button class="btn sq" id="fsUp" type="button" aria-label="字号调大">A+</button>
+  </div>
+  <div class="group" aria-label="语速">
+    <span class="lab">语速 字/分</span>
+    <button class="btn sq" id="cpmDown" type="button" aria-label="语速调慢">−</button>
+    <span class="val" id="cpmVal">270</span>
+    <button class="btn sq" id="cpmUp" type="button" aria-label="语速调快">+</button>
+  </div>
+  <details class="more" id="more">
+    <summary class="btn">更多</summary>
+    <div class="panel">
+      <div class="row">
+        <label for="fsRange">字号</label><span class="val" id="fsRangeVal">56 px</span>
+        <input type="range" id="fsRange" min="20" max="140" step="2">
+      </div>
+      <div class="row">
+        <label for="colsRange">每行字数</label><span class="val" id="colsVal">16 字</span>
+        <input type="range" id="colsRange" min="6" max="32" step="1">
+      </div>
+      <div class="row">
+        <label for="lineRange">阅读线位置</label><span class="val" id="lineVal">屏幕 33%</span>
+        <input type="range" id="lineRange" min="15" max="60" step="1">
+      </div>
+      <label class="toggle" for="dirChk">显示画面提示 <input type="checkbox" id="dirChk"></label>
+      <label class="toggle" for="mirrorChk">镜像翻转（配反光玻璃提词器用） <input type="checkbox" id="mirrorChk"></label>
+      <label class="toggle" for="cdChk">开头倒数 3 秒 <input type="checkbox" id="cdChk"></label>
+      <div class="acts">
+        <button class="btn" id="fullBtn" type="button">全屏</button>
+        <button class="btn" id="topBtn" type="button">回到开头</button>
+      </div>
+      <div class="keys">
+        <kbd>空格</kbd> 开始/暂停　<kbd>↑</kbd><kbd>↓</kbd> 语速　<kbd>+</kbd><kbd>−</kbd> 字号<br>
+        <kbd>Home</kbd> 回到开头　<kbd>E</kbd> 改稿　<kbd>M</kbd> 镜像　<kbd>H</kbd> 画面提示　<kbd>F</kbd> 全屏<br>
+        换稿：在页面上直接 <kbd>⌘V</kbd>/<kbd>Ctrl V</kbd> 粘贴，或把 .txt、.md 文件拖进来。<br>
+        点稿子任意位置也能开始/暂停，滚轮或手指可以随时拖动。
+      </div>
+      <div class="keys">免费开源，源代码在 <a href="https://github.com/zoey1108/koubo-prompter" target="_blank" rel="noopener">github.com/zoey1108/koubo-prompter</a></div>
+    </div>
+  </details>
+</header>
+
+<main class="stage" id="stage" aria-label="提词稿">
+  <div class="script" id="script"></div>
+  <div class="empty" id="empty" hidden>
+    <div class="card">
+      <h2>稿子库是空的</h2>
+      <p>新建一篇，把稿子粘贴进去就能开始滚动。也可以直接在这个页面按 ⌘V 或 Ctrl V 粘贴，或者把 .txt、.md 文件拖进来。</p>
+      <div class="acts">
+        <button class="btn play" id="emptyNew" type="button">＋ 新建稿子</button>
+        <button class="btn" id="emptySeed" type="button">放回示例稿</button>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="guide" id="guide" aria-hidden="true"><div class="band"></div></div>
+
+<footer class="status">
+  <div class="track"><i id="prog"></i></div>
+  <div class="meta">
+    <span>已录 <b id="elapsed">0:00</b></span>
+    <span>剩余约 <b id="remain">0:00</b></span>
+    <span>全长约 <b id="total">0:00</b></span>
+    <span id="chars">0 字</span>
+    <span class="note">稿子只存在这台设备的浏览器里</span>
+  </div>
+</footer>
+
+<div class="count" id="count" hidden></div>
+<div class="drop" id="drop" hidden>松手导入稿子</div>
+
+<div class="editor" id="editor" hidden>
+  <form class="box" id="edForm">
+    <div>
+      <h2 id="edTitle">改稿</h2>
+      <p class="hint">一行一句，按行停顿。<code>【开场】</code>这样单独一行是段落名，<code>画面：</code>开头的是拍摄提示，两种都不用念。Markdown 的 # 标题、** 加粗会自动去掉，直接粘贴 .md 稿子也行。</p>
+    </div>
+    <input type="text" id="edName" maxlength="60" placeholder="稿子名称，比如「新品介绍 · 1 分钟」" aria-label="稿子名称">
+    <textarea id="src" spellcheck="false" aria-label="稿子正文" placeholder="把稿子粘贴到这里，或者把 .txt、.md 文件拖进这个框。"></textarea>
+    <div class="info" aria-live="polite">
+      <span id="edStat">0 字 · 约 0:00</span>
+      <span class="msg" id="edMsg"></span>
+    </div>
+    <div class="acts">
+      <button class="btn" id="edImport" type="button">导入文件</button>
+      <button class="btn" id="edCopy" type="button">复制全文</button>
+      <button class="btn warn spacer" id="edDelete" type="button">删除这篇</button>
+      <button class="btn" id="edCancel" type="button">取消</button>
+      <button class="btn play" id="edSave" type="submit">保存并使用</button>
+    </div>
+    <input type="file" id="file" accept=".txt,.md,.markdown,.text,text/plain,text/markdown" hidden>
+  </form>
+</div>
+
+<script>
+// 示例稿：第一次打开时放进稿子库，删掉后可以在空状态里放回来
+const SEED = [
+  { name: "示例 · 这个提词器怎么用", text: `【开场】
+画面：提词器全屏，阅读线在屏幕上方三分之一
+这是一篇示例稿，顺便告诉你这个提词器怎么用。
+【换稿】
+想换成自己的稿子，在页面上直接按 Command V 或者 Ctrl V 粘贴。
+也可以把 txt、md 文件拖进来，或者点上面的「新稿」。
+稿子只存在你自己的浏览器里，不会上传到任何地方。
+【写法】
+一行一句，每行之间会稍微停一下。
+用【】括起来、单独占一行的，是段落名，不用念。
+以「画面」加冒号开头的，是拍摄提示，也不用念。
+【录的时候】
+按空格开始和暂停，上下方向键调语速，加减号调字号。
+长句子会自动走慢一点，短句子走快一点。
+念到一半想回看，用滚轮或者手指拖一下就行。
+【结尾】
+看完这篇，把它删掉，换成你的稿子吧。` },
+  { name: "示例 · 新品介绍 1 分钟", text: `【开场】
+画面：杯子放在办公桌上，旁边一杯冷掉的咖啡
+早上泡的咖啡，到中午就凉了，这事你应该碰到过。
+【它是什么】
+画面：杯子特写，慢慢转一圈
+这是我们新出的一款保温杯，容量 400 毫升，单手就能打开。
+早上八点装进去的热水，到下午五点还是烫的。
+【三个细节】
+杯盖可以整个拆开洗，没有藏污垢的死角。
+杯身外面不烫手，冬天拿着也不冰。
+底部有一圈硅胶垫，放在桌上不会滑。
+【结尾】
+画面：价格和购买方式字卡
+价格和购买方式，我放在简介里了。` },
+  { name: "示例 · 知识口播：天空为什么是蓝的", text: `【开场】
+为什么天空是蓝色的？答案藏在阳光里。
+【原理】
+画面：白光穿过三棱镜，分成一道彩虹
+阳光看起来是白的，其实混着各种颜色的光。
+这些光穿过大气层时，会撞上空气分子，被散射到四面八方。
+波长越短的光，被散射得越厉害。
+蓝光的波长短，所以满天都是被散开的蓝光。
+【那为什么不是紫色】
+紫光的波长比蓝光还短，按理说散射得更多。
+但阳光里的紫光本来就少，我们的眼睛对紫光也不太敏感。
+所以看起来，天空是蓝的。
+【日落】
+画面：海边日落
+傍晚太阳低，阳光要斜着穿过更厚的大气。
+蓝光在路上差不多被散光了，剩下的多是红光和橙光。
+所以晚霞是红色的。
+【结尾】
+下次抬头看天，你就知道它为什么是这个颜色了。` }
+];
+
+const $ = id => document.getElementById(id);
+const stage = $("stage"), script = $("script"), guide = $("guide");
+const narrow = window.innerWidth < 640;
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+const S = Object.assign({
+  cur: "", fs: narrow ? 34 : 56, cpm: 270, cols: narrow ? 10 : 16,
+  line: 33, dirs: true, mirror: false, countdown: true
+}, store.get("kb-settings") || {});
+
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const seedItems = () => SEED.map((s, i) => ({ id: "seed" + i + newId(), name: s.name, text: s.text, t: Date.now() - i }));
+let lib = store.get("kb-library");
+if (!Array.isArray(lib)) { lib = seedItems(); store.set("kb-library", lib); }
+const saveLib = () => store.set("kb-library", lib);
+const current = () => lib.find(s => s.id === S.cur) || lib[0] || null;
+
+let blocks = [], y = 0, lastSet = -1, linePx = 0, playing = false, raf = 0, lastTs = 0;
+let elapsed = 0, countTimer = 0, wake = null;
+
+// 念的长度：汉字、数字、假名、韩文按一个算；三个字母以内的缩写按字母念，长单词约两个字母一拍
+function countChars(s) {
+  let n = (s.match(/[぀-ヿ㐀-鿿豈-﫿가-힯0-9]/g) || []).length;
+  (s.match(/[A-Za-z]+/g) || []).forEach(w => { n += w.length <= 3 ? w.length : Math.ceil(w.length / 2); });
+  return n;
+}
+const fmt = sec => { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); };
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// 稿子格式尽量宽松：纯文本、上一版提词器的格式、口播脚本的 Markdown 都能直接贴
+function parse(txt) {
+  const out = [];
+  const asDir = s => s.match(/^(?:画面|镜头)[：:]\s*(.*)$/);
+  txt.split(/\r?\n/).forEach(raw => {
+    let l = raw.trim();
+    if (!l || /^([-*_=])\1{2,}$/.test(l) || /^```/.test(l)) return;
+    let head = l.match(/^#{1,6}\s+(.+)$/);
+    l = (head ? head[1] : l).replace(/\*\*|__/g, "").replace(/^[-*+>]\s+/, "").trim();
+    if (!l) return;
+    if (head) { out.push({ type: "sec", text: l }); return; }
+    const sec = l.match(/^【([^】]+)】\s*(.*)$/);
+    if (sec) {
+      out.push({ type: "sec", text: sec[1] });
+      const rest = sec[2].trim();
+      if (rest) { const d = asDir(rest); out.push(d ? { type: "dir", text: d[1] } : { type: "line", text: rest }); }
+      return;
+    }
+    const d = asDir(l);
+    out.push(d ? { type: "dir", text: d[1] } : { type: "line", text: l });
+  });
+  return out;
+}
+const durOf = (type, text) => type === "line" ? countChars(text) * 60 / S.cpm + 0.2 : (type === "dir" ? 0.3 : 0.5);
+function estimate(items) {
+  let chars = 0, sec = 0;
+  items.forEach(b => {
+    if (b.type === "line") chars += countChars(b.text);
+    if (b.type !== "dir" || S.dirs) sec += durOf(b.type, b.text);
+  });
+  return { chars, sec };
+}
+
+function fillPick() {
+  const pick = $("pick");
+  pick.innerHTML = lib.map(s => `<option value="${esc(s.id)}">${esc(s.name || "未命名稿子")}</option>`).join("");
+  const c = current();
+  if (c) { S.cur = c.id; pick.value = c.id; }
+  pick.disabled = !lib.length;
+  $("editBtn").disabled = !lib.length;
+  $("play").disabled = !lib.length;
+  $("empty").hidden = !!lib.length;
+}
+
+function render() {
+  const c = current();
+  const items = c ? parse(c.text) : [];
+  script.innerHTML = items.map(b => `<div class="blk ${b.type}" data-type="${b.type}">${esc(b.text)}</div>`).join("");
+  $("chars").textContent = estimate(items).chars + " 字";
+  blocks = [];
+  applyLayout();
+  y = startY();
+  setScroll();
+  elapsed = 0;
+  update(true);
+}
+
+// 量出每一块在阅读线坐标系里的位置和该念多久。y 是此刻对准阅读线的那一点。
+function measure() {
+  linePx = Math.round(stage.clientHeight * S.line / 100);
+  script.style.paddingTop = linePx + "px";
+  script.style.paddingBottom = (stage.clientHeight - linePx) + "px";
+  guide.style.top = (stage.getBoundingClientRect().top + linePx) + "px";
+  guide.hidden = !lib.length;
+  const els = [...script.children].filter(el => el.offsetHeight > 0);
+  blocks = els.map((el, i) => {
+    const top = el.offsetTop;
+    const next = els[i + 1];
+    const height = next ? next.offsetTop - top : el.offsetHeight;
+    const type = el.dataset.type;
+    return { el, top, height: Math.max(1, height), dur: durOf(type, el.textContent), type };
+  });
+}
+function locate(pos) {
+  let i = 0;
+  for (let k = 0; k < blocks.length; k++) { if (blocks[k].top <= pos + 0.5) i = k; else break; }
+  return i;
+}
+// 版式变了（字号、行宽、窗口）以后，保持当前念到的那一句不跳
+function applyLayout() {
+  let keep = null;
+  if (blocks.length) {
+    const i = locate(y), b = blocks[i];
+    keep = { el: b.el, frac: Math.min(1, Math.max(0, (y - b.top) / b.height)) };
+  }
+  document.documentElement.style.setProperty("--fs", S.fs + "px");
+  document.documentElement.style.setProperty("--cols", S.cols);
+  document.body.classList.toggle("nodir", !S.dirs);
+  document.body.classList.toggle("mirror", S.mirror);
+  measure();
+  if (keep) {
+    const b = blocks.find(b => b.el === keep.el) || blocks[locate(y)];
+    if (b) y = b.top + keep.frac * b.height;
+    setScroll();
+  }
+  syncControls();
+  update(true);
+}
+const startY = () => blocks.length ? blocks[0].top : 0;
+const endY = () => { const b = blocks[blocks.length - 1]; return b ? b.top + b.height : 0; };
+function setScroll() {
+  stage.scrollTop = y - linePx;
+  lastSet = stage.scrollTop;
+}
+function remaining() {
+  if (!blocks.length) return 0;
+  const i = locate(y), b = blocks[i];
+  let r = Math.max(0, 1 - (y - b.top) / b.height) * b.dur;
+  for (let k = i + 1; k < blocks.length; k++) r += blocks[k].dur;
+  return r;
+}
+let lastIdx = -1;
+function update(force) {
+  const total = blocks.reduce((n, b) => n + b.dur, 0);
+  const span = endY() - startY();
+  $("prog").style.width = (span > 0 ? Math.min(100, Math.max(0, (y - startY()) / span * 100)) : 0) + "%";
+  $("remain").textContent = fmt(remaining());
+  $("total").textContent = fmt(total);
+  $("elapsed").textContent = fmt(elapsed);
+  const i = locate(y);
+  if (force || i !== lastIdx) {
+    blocks.forEach((b, k) => b.el.classList.toggle("past", k < i));
+    lastIdx = i;
+  }
+}
+
+function tick(ts) {
+  if (!playing) return;
+  const dt = lastTs ? Math.min(0.1, (ts - lastTs) / 1000) : 0;
+  lastTs = ts;
+  const b = blocks[locate(y)];
+  if (b) y += b.height / b.dur * dt;
+  elapsed += dt;
+  if (y >= endY() - 1) { y = endY() - 1; setScroll(); update(); pause(); return; }
+  setScroll();
+  update();
+  raf = requestAnimationFrame(tick);
+}
+function begin() {
+  playing = true; lastTs = 0;
+  document.body.classList.add("playing");
+  $("play").textContent = "❚❚ 暂停";
+  $("more").open = false;
+  if ("wakeLock" in navigator) navigator.wakeLock.request("screen").then(w => { wake = w; }).catch(() => {});
+  raf = requestAnimationFrame(tick);
+}
+function play() {
+  if (playing || countTimer || !blocks.length) return;
+  if (y >= endY() - 2) { y = startY(); elapsed = 0; setScroll(); update(true); }
+  if (S.countdown && y <= startY() + 2) {
+    let n = 3;
+    const c = $("count");
+    c.hidden = false; c.textContent = n;
+    $("play").textContent = "取消";
+    countTimer = setInterval(() => {
+      n--;
+      if (n > 0) { c.textContent = n; return; }
+      clearInterval(countTimer); countTimer = 0; c.hidden = true;
+      begin();
+    }, 1000);
+    return;
+  }
+  begin();
+}
+function pause() {
+  if (countTimer) { clearInterval(countTimer); countTimer = 0; $("count").hidden = true; }
+  playing = false;
+  cancelAnimationFrame(raf);
+  document.body.classList.remove("playing");
+  $("play").textContent = "▶ 开始";
+  if (wake) { wake.release().catch(() => {}); wake = null; }
+}
+const toggle = () => (playing || countTimer) ? pause() : play();
+function toTop() { pause(); y = startY(); elapsed = 0; setScroll(); update(true); }
+
+function save() { store.set("kb-settings", S); }
+function setFs(v) { S.fs = Math.max(20, Math.min(140, Math.round(v / 2) * 2)); applyLayout(); save(); }
+function setCpm(v) { S.cpm = Math.max(120, Math.min(420, v)); measure(); syncControls(); update(); save(); }
+function syncControls() {
+  $("fsVal").textContent = S.fs;
+  $("fsRange").value = S.fs; $("fsRangeVal").textContent = S.fs + " px";
+  $("cpmVal").textContent = S.cpm;
+  $("colsRange").value = S.cols; $("colsVal").textContent = S.cols + " 字";
+  $("lineRange").value = S.line; $("lineVal").textContent = "屏幕 " + S.line + "%";
+  $("dirChk").checked = S.dirs; $("mirrorChk").checked = S.mirror; $("cdChk").checked = S.countdown;
+}
+
+// 手动拖动或滚轮：以用户停下的位置为准
+stage.addEventListener("scroll", () => {
+  if (Math.abs(stage.scrollTop - lastSet) > 2) {
+    y = stage.scrollTop + linePx; lastSet = stage.scrollTop;
+    update();
+  }
+}, { passive: true });
+let downAt = null;
+stage.addEventListener("pointerdown", e => { downAt = e.target.closest(".empty") ? null : { x: e.clientX, y: e.clientY }; });
+stage.addEventListener("pointerup", e => {
+  if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 8) toggle();
+  downAt = null;
+});
+
+const clickBlur = fn => e => { fn(e); if (e.detail > 0) e.currentTarget.blur(); };
+$("play").addEventListener("click", clickBlur(toggle));
+$("fsDown").addEventListener("click", clickBlur(() => setFs(S.fs - 4)));
+$("fsUp").addEventListener("click", clickBlur(() => setFs(S.fs + 4)));
+$("cpmDown").addEventListener("click", clickBlur(() => setCpm(S.cpm - 10)));
+$("cpmUp").addEventListener("click", clickBlur(() => setCpm(S.cpm + 10)));
+$("fsRange").addEventListener("input", e => setFs(+e.target.value));
+$("colsRange").addEventListener("input", e => { S.cols = +e.target.value; applyLayout(); save(); });
+$("lineRange").addEventListener("input", e => { S.line = +e.target.value; applyLayout(); save(); });
+$("dirChk").addEventListener("change", e => { S.dirs = e.target.checked; applyLayout(); save(); });
+$("mirrorChk").addEventListener("change", e => { S.mirror = e.target.checked; applyLayout(); save(); });
+$("cdChk").addEventListener("change", e => { S.countdown = e.target.checked; save(); });
+$("pick").addEventListener("change", e => { pause(); S.cur = e.target.value; save(); render(); });
+$("topBtn").addEventListener("click", clickBlur(toTop));
+function fullscreen() {
+  const d = document;
+  if (d.fullscreenElement) d.exitFullscreen().catch(() => {});
+  else if (d.documentElement.requestFullscreen) d.documentElement.requestFullscreen().catch(() => {});
+}
+$("fullBtn").addEventListener("click", clickBlur(fullscreen));
+
+// 改稿 / 新稿
+let edMode = "edit", armTimer = 0;
+const editorOpen = () => !$("editor").hidden;
+function say(text, bad) { const m = $("edMsg"); m.textContent = text || ""; m.classList.toggle("bad", !!bad); }
+function refreshStat() {
+  const e = estimate(parse($("src").value));
+  $("edStat").textContent = `${e.chars} 字 · 按 ${S.cpm} 字/分约 ${fmt(e.sec)}`;
+}
+function disarm() { clearTimeout(armTimer); const b = $("edDelete"); b.classList.remove("armed"); b.textContent = "删除这篇"; }
+function openEditor(mode, preset) {
+  pause(); $("more").open = false; disarm(); say("");
+  edMode = mode;
+  const c = current();
+  const data = preset || (mode === "edit" && c ? { name: c.name, text: c.text } : { name: "", text: "" });
+  $("edTitle").textContent = mode === "edit" ? "改稿" : "新建稿子";
+  $("edName").value = data.name || "";
+  $("src").value = data.text || "";
+  $("edDelete").hidden = mode !== "edit";
+  $("editor").hidden = false;
+  refreshStat();
+  $("src").focus();
+  if (data.msg) say(data.msg);
+}
+const closeEditor = () => { $("editor").hidden = true; disarm(); };
+function firstLineName(text) {
+  const first = parse(text).find(b => b.type === "line");
+  return first ? first.text.slice(0, 16) + (first.text.length > 16 ? "…" : "") : "未命名稿子";
+}
+$("edForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const text = $("src").value.replace(/\s+$/, "");
+  if (!parse(text).some(b => b.type === "line")) { say("稿子里还没有要念的句子。", true); $("src").focus(); return; }
+  const name = $("edName").value.trim() || firstLineName(text);
+  const c = current();
+  if (edMode === "edit" && c) Object.assign(c, { name, text, t: Date.now() });
+  else { const s = { id: newId(), name, text, t: Date.now() }; lib.unshift(s); S.cur = s.id; save(); }
+  saveLib(); closeEditor(); fillPick(); render();
+});
+$("edCancel").addEventListener("click", closeEditor);
+$("editor").addEventListener("pointerdown", e => { if (e.target === $("editor")) closeEditor(); });
+$("src").addEventListener("input", () => { refreshStat(); say(""); });
+$("edDelete").addEventListener("click", () => {
+  const b = $("edDelete");
+  if (!b.classList.contains("armed")) {
+    b.classList.add("armed"); b.textContent = "再点一次确认删除";
+    armTimer = setTimeout(disarm, 3000); return;
+  }
+  const c = current();
+  lib = lib.filter(s => s !== c); saveLib();
+  S.cur = lib[0] ? lib[0].id : ""; save();
+  closeEditor(); fillPick(); render();
+});
+$("edCopy").addEventListener("click", () => {
+  const ta = $("src");
+  const fallback = () => { ta.focus(); ta.select(); say("已全选，按 ⌘C 或 Ctrl C 复制。"); };
+  try {
+    navigator.clipboard.writeText(ta.value).then(() => say("已复制全文。"), fallback);
+  } catch (err) { fallback(); }
+});
+$("edImport").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ""; });
+$("editBtn").addEventListener("click", clickBlur(() => openEditor("edit")));
+$("newBtn").addEventListener("click", clickBlur(() => openEditor("new")));
+$("emptyNew").addEventListener("click", () => openEditor("new"));
+$("emptySeed").addEventListener("click", () => {
+  lib = seedItems(); saveLib(); S.cur = lib[0].id; save(); fillPick(); render();
+});
+
+// 读文件：在改稿框里就填进框，否则新建一篇
+function readFile(f) {
+  const okType = /\.(txt|md|markdown|text)$/i.test(f.name) || /^text\//.test(f.type);
+  const base = f.name.replace(/\.[^.]+$/, "");
+  if (!okType) {
+    const msg = "只能导入 .txt 或 .md。Word 文档请先复制全文，再粘贴到这里。";
+    if (!editorOpen()) openEditor("new");
+    say(msg, true);
+    return;
+  }
+  if (f.size > 2 * 1024 * 1024) { const msg = "文件超过 2 MB，不像一篇口播稿，换一个试试。"; if (!editorOpen()) openEditor("new"); say(msg, true); return; }
+  const r = new FileReader();
+  r.onload = () => {
+    const text = String(r.result).replace(/^﻿/, "");
+    if (editorOpen()) {
+      $("src").value = text;
+      if (!$("edName").value.trim()) $("edName").value = base;
+      refreshStat(); say("已导入「" + f.name + "」，确认没问题就保存。");
+    } else {
+      openEditor("new", { name: base, text, msg: "已导入「" + f.name + "」，确认没问题就保存。" });
+    }
+  };
+  r.onerror = () => { if (!editorOpen()) openEditor("new"); say("读不出这个文件，试试另存为 UTF-8 编码的 .txt。", true); };
+  r.readAsText(f, "utf-8");
+}
+let dragDepth = 0;
+const hasFiles = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files");
+document.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $("drop").hidden = false; });
+document.addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); });
+document.addEventListener("dragleave", e => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("drop").hidden = true; });
+document.addEventListener("drop", e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; $("drop").hidden = true;
+  const f = e.dataTransfer.files[0]; if (f) readFile(f);
+});
+// 在页面上直接粘贴：打开新稿框，内容已经填好
+document.addEventListener("paste", e => {
+  if (editorOpen()) return;
+  const t = e.target.tagName;
+  if (t === "INPUT" || t === "TEXTAREA") return;
+  const text = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
+  if (!text.trim()) return;
+  e.preventDefault();
+  openEditor("new", { name: "", text, msg: "已粘贴，起个名字就可以保存。" });
+  $("edName").focus();
+});
+
+document.addEventListener("keydown", e => {
+  if (editorOpen()) {
+    if (e.key === "Escape") closeEditor();
+    else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $("edForm").requestSubmit(); }
+    return;
+  }
+  const t = e.target.tagName;
+  if (t === "INPUT" || t === "SELECT" || t === "TEXTAREA") return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key;
+  if (k === " " || k === "Spacebar") { e.preventDefault(); toggle(); }
+  else if (k === "ArrowUp") { e.preventDefault(); setCpm(S.cpm + 10); }
+  else if (k === "ArrowDown") { e.preventDefault(); setCpm(S.cpm - 10); }
+  else if (k === "+" || k === "=") setFs(S.fs + 4);
+  else if (k === "-" || k === "_") setFs(S.fs - 4);
+  else if (k === "Home") { e.preventDefault(); toTop(); }
+  else if (k === "e" || k === "E") { if (lib.length) { e.preventDefault(); openEditor("edit"); } }
+  else if (k === "m" || k === "M") { S.mirror = !S.mirror; applyLayout(); save(); }
+  else if (k === "h" || k === "H") { S.dirs = !S.dirs; applyLayout(); save(); }
+  else if (k === "f" || k === "F") fullscreen();
+  else if (k === "Escape") $("more").open = false;
+});
+let rz = 0;
+window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(applyLayout, 120); });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => applyLayout());
+
+syncControls();
+fillPick();
+render();
+</script>
+</body>
+</html>
