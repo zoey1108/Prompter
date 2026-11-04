@@ -2,7 +2,12 @@
 
 一个打开就能用的网页提词器：把稿子贴进去就开始滚动，按每句的字数自动控速。
 
-在线使用：<https://zoey1108.github.io/Prompter/>
+在线使用：
+
+- 国内访问：<https://xyme.site/prompter/>
+- GitHub Pages：<https://zoey1108.github.io/Prompter/>
+
+两个地址是同一个页面，但稿子分开存，在一个地址里存的稿子另一个看不到。
 
 不用注册，没有广告，也不联网保存。稿子和录的视频都只在你自己的浏览器里，不会上传到任何地方。
 
