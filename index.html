@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>口播提词器</title>
-<meta name="description" content="免费开源的网页提词器：粘贴稿子就能滚动，按每句字数自动控速，可调字号、语速、镜像，稿子只存在本地浏览器。">
+<meta name="description" content="免费开源的网页提词器：粘贴稿子就能滚动，按每句字数自动控速，可开镜头模式边看稿边录视频，稿子只存在本地浏览器。">
 <meta name="theme-color" content="#0f1216">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1216'/%3E%3Cpath d='M7 10h18M7 16h18M7 22h11' stroke='%23ece7de' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M3 16l3-2.6v5.2z' fill='%23e0a84b'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,6 +24,8 @@
   --amber: #e0a84b;
   --amber-soft: rgba(224, 168, 75, 0.10);
   --danger: #e2735f;
+  --rec: #e5484d;
+  --shade: .35;
   --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --fs: 56px;
@@ -143,6 +145,60 @@ body.mirror .script { transform: scaleX(-1); }
 .blk.dir::before { content: "画面　"; color: var(--past); letter-spacing: .1em; }
 body.nodir .blk.dir { display: none; }
 .blk.past.sec, .blk.past.dir { opacity: .45; }
+.stage { z-index: 1; }
+.status { position: relative; z-index: 1; }
+
+/* 镜头模式：摄像头画面铺在最底层，稿子浮在上面，控制栏变半透明 */
+.camwrap { position: fixed; inset: 0; z-index: 0; background: #000; }
+.camwrap video { display: block; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.camwrap .shade { position: absolute; inset: 0; background: rgba(0, 0, 0, var(--shade)); }
+body.cam { background: #000; }
+body.cam .bar, body.cam .status {
+  background: rgba(15, 18, 22, .62); border-color: rgba(255, 255, 255, .08);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+body.cam .blk.line { text-shadow: 0 1px 2px rgba(0, 0, 0, .9), 0 0 18px rgba(0, 0, 0, .55); }
+body.cam .blk.line.past { color: rgba(236, 231, 222, .38); }
+body.cam .blk.dir { color: #c3c9d1; text-shadow: 0 1px 2px rgba(0, 0, 0, .9); }
+body.cam .blk.sec::after { background: rgba(255, 255, 255, .18); }
+body.cam .guide .band { background: rgba(224, 168, 75, .07); }
+.btn.on { border-color: var(--amber); color: var(--amber); }
+.btn.recbtn { background: var(--rec); border-color: var(--rec); color: #fff; font-weight: 700; }
+.btn.recbtn.on { background: transparent; color: var(--rec); }
+.recstat {
+  display: inline-flex; align-items: center; gap: 6px; color: var(--rec);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.recstat i { width: 9px; height: 9px; border-radius: 50%; background: var(--rec); animation: blink 1s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+body.recording .bar { opacity: 1; }
+
+/* 录好的视频 */
+.takes {
+  position: fixed; z-index: 7;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  width: min(360px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 14px; display: grid; gap: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+}
+.takes .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.takes h3 { margin: 0; font-size: 14px; }
+.takes ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; max-height: 40vh; overflow-y: auto; }
+.take { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 13px; }
+.take .t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--dim); }
+.take .t b { color: var(--paper); font-weight: 500; font-family: var(--font-body); margin-right: 6px; }
+.take.saved .t b::after { content: " · 已保存"; color: var(--dim); font-weight: 400; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+.takes p { margin: 0; font-size: 12px; color: var(--dim); line-height: 1.6; }
+
+/* 提示条 */
+.toast {
+  position: fixed; z-index: 11; left: 50%; top: calc(76px + env(safe-area-inset-top, 0px)); transform: translateX(-50%);
+  width: max-content; max-width: calc(100vw - 32px);
+  background: var(--panel); border: 1px solid var(--rule); border-left: 3px solid var(--amber); border-radius: 8px;
+  padding: 10px 14px; font-size: 13px; line-height: 1.6; box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+}
 
 /* 稿子库空了 */
 .empty {
@@ -246,14 +302,26 @@ body.playing .status { opacity: .35; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bar, .status, .blk { transition: none; }
+  .recstat i { animation: none; }
 }
 </style>
 </head>
 <body>
 
+<div class="camwrap" id="camwrap" hidden>
+  <video id="camVideo" playsinline muted autoplay></video>
+  <div class="shade"></div>
+</div>
+
 <header class="bar" id="bar">
   <div class="brand">口播提词器</div>
   <button class="btn play" id="play" type="button">▶ 开始</button>
+  <div class="group">
+    <button class="btn" id="camBtn" type="button" title="摄像头画面垫在稿子下面（C）">镜头模式</button>
+    <button class="btn recbtn" id="recBtn" type="button" hidden>● 录制</button>
+    <span class="recstat" id="recStat" hidden><i></i><span id="recTime">0:00</span></span>
+    <button class="btn" id="takesBtn" type="button" hidden></button>
+  </div>
   <div class="group">
     <span class="lab">稿子</span>
     <select class="btn" id="pick" aria-label="选择稿子"></select>
@@ -287,6 +355,20 @@ body.playing .status { opacity: .35; }
         <label for="lineRange">阅读线位置</label><span class="val" id="lineVal">屏幕 33%</span>
         <input type="range" id="lineRange" min="15" max="60" step="1">
       </div>
+      <div id="camOpts" hidden>
+        <div class="row">
+          <label for="shadeRange">镜头画面压暗</label><span class="val" id="shadeVal">35%</span>
+          <input type="range" id="shadeRange" min="0" max="85" step="5">
+        </div>
+        <div class="row">
+          <label for="camSel">摄像头</label><span></span>
+          <select class="btn" id="camSel" style="grid-column: 1 / -1; max-width: 100%"></select>
+        </div>
+        <div class="row">
+          <label for="micSel">麦克风</label><span></span>
+          <select class="btn" id="micSel" style="grid-column: 1 / -1; max-width: 100%"></select>
+        </div>
+      </div>
       <label class="toggle" for="dirChk">显示画面提示 <input type="checkbox" id="dirChk"></label>
       <label class="toggle" for="mirrorChk">镜像翻转（配反光玻璃提词器用） <input type="checkbox" id="mirrorChk"></label>
       <label class="toggle" for="cdChk">开头倒数 3 秒 <input type="checkbox" id="cdChk"></label>
@@ -297,10 +379,11 @@ body.playing .status { opacity: .35; }
       <div class="keys">
         <kbd>空格</kbd> 开始/暂停　<kbd>↑</kbd><kbd>↓</kbd> 语速　<kbd>+</kbd><kbd>−</kbd> 字号<br>
         <kbd>Home</kbd> 回到开头　<kbd>E</kbd> 改稿　<kbd>M</kbd> 镜像　<kbd>H</kbd> 画面提示　<kbd>F</kbd> 全屏<br>
+        <kbd>C</kbd> 镜头模式　<kbd>R</kbd> 开始/停止录制<br>
         换稿：在页面上直接 <kbd>⌘V</kbd>/<kbd>Ctrl V</kbd> 粘贴，或把 .txt、.md 文件拖进来。<br>
         点稿子任意位置也能开始/暂停，滚轮或手指可以随时拖动。
       </div>
-      <div class="keys">免费开源，源代码在 <a href="https://github.com/zoey1108/koubo-prompter" target="_blank" rel="noopener">github.com/zoey1108/koubo-prompter</a></div>
+      <div class="keys">免费开源，源代码在 <a href="https://github.com/zoey1108/Prompter" target="_blank" rel="noopener">github.com/zoey1108/Prompter</a></div>
     </div>
   </details>
 </header>
@@ -323,7 +406,7 @@ body.playing .status { opacity: .35; }
 <footer class="status">
   <div class="track"><i id="prog"></i></div>
   <div class="meta">
-    <span>已录 <b id="elapsed">0:00</b></span>
+    <span>已念 <b id="elapsed">0:00</b></span>
     <span>剩余约 <b id="remain">0:00</b></span>
     <span>全长约 <b id="total">0:00</b></span>
     <span id="chars">0 字</span>
@@ -332,6 +415,16 @@ body.playing .status { opacity: .35; }
 </footer>
 
 <div class="count" id="count" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<section class="takes" id="takes" hidden aria-label="录好的视频">
+  <div class="head">
+    <h3>这次录的视频</h3>
+    <button class="btn" id="takesClose" type="button">收起</button>
+  </div>
+  <ol id="takeList"></ol>
+  <p>视频只在这个页面里，关掉或刷新就没了，录好的请先点「保存」。录下来的画面是正常方向，不镜像，也不带提词文字。</p>
+</section>
 <div class="drop" id="drop" hidden>松手导入稿子</div>
 
 <div class="editor" id="editor" hidden>
@@ -421,7 +514,8 @@ const store = {
 };
 const S = Object.assign({
   cur: "", fs: narrow ? 34 : 56, cpm: 270, cols: narrow ? 10 : 16,
-  line: 33, dirs: true, mirror: false, countdown: true
+  line: 33, dirs: true, mirror: false, countdown: true,
+  shade: 35, camId: "", micId: ""
 }, store.get("kb-settings") || {});
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -583,6 +677,7 @@ function tick(ts) {
 }
 function begin() {
   playing = true; lastTs = 0;
+  if (recArmed) { recArmed = false; startRec(); }
   document.body.classList.add("playing");
   $("play").textContent = "❚❚ 暂停";
   $("more").open = false;
@@ -608,6 +703,7 @@ function play() {
   begin();
 }
 function pause() {
+  recArmed = false;
   if (countTimer) { clearInterval(countTimer); countTimer = 0; $("count").hidden = true; }
   playing = false;
   cancelAnimationFrame(raf);
@@ -628,6 +724,8 @@ function syncControls() {
   $("colsRange").value = S.cols; $("colsVal").textContent = S.cols + " 字";
   $("lineRange").value = S.line; $("lineVal").textContent = "屏幕 " + S.line + "%";
   $("dirChk").checked = S.dirs; $("mirrorChk").checked = S.mirror; $("cdChk").checked = S.countdown;
+  $("shadeRange").value = S.shade; $("shadeVal").textContent = S.shade + "%";
+  document.documentElement.style.setProperty("--shade", S.shade / 100);
 }
 
 // 手动拖动或滚轮：以用户停下的位置为准
@@ -800,8 +898,174 @@ document.addEventListener("keydown", e => {
   else if (k === "m" || k === "M") { S.mirror = !S.mirror; applyLayout(); save(); }
   else if (k === "h" || k === "H") { S.dirs = !S.dirs; applyLayout(); save(); }
   else if (k === "f" || k === "F") fullscreen();
+  else if (k === "c" || k === "C") toggleCam();
+  else if ((k === "r" || k === "R") && camStream) recClick();
   else if (k === "Escape") $("more").open = false;
 });
+// 镜头模式：摄像头画面垫在稿子下面，可以直接在页面里录
+let camStream = null, recorder = null, recArmed = false, recStart = 0, recTimer = 0, toastTimer = 0;
+const takes = [];
+function toast(msg, ms) {
+  const t = $("toast");
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 5000);
+}
+const gum = c => navigator.mediaDevices.getUserMedia(c);
+async function openStream() {
+  const video = { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: "user" };
+  if (S.camId) video.deviceId = { exact: S.camId };
+  const audio = S.micId ? { deviceId: { exact: S.micId }, echoCancellation: true } : { echoCancellation: true };
+  try { return await gum({ video, audio }); }
+  catch (err) {
+    if (err.name === "NotAllowedError" || err.name === "SecurityError") throw err;
+    // 记住的设备拔掉了：退回默认设备再试
+    if (S.camId || S.micId) { S.camId = ""; S.micId = ""; save(); return openStream(); }
+    // 有摄像头没麦克风：先只开画面
+    if (err.name === "NotFoundError") {
+      const s = await gum({ video, audio: false });
+      toast("没找到麦克风，录下来的视频会没有声音。");
+      return s;
+    }
+    throw err;
+  }
+}
+function stopTracks() {
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null; $("camVideo").srcObject = null;
+}
+function setCamUI(on) {
+  document.body.classList.toggle("cam", on);
+  $("camwrap").hidden = !on; $("recBtn").hidden = !on; $("camOpts").hidden = !on;
+  $("camBtn").textContent = on ? "关闭镜头" : "镜头模式";
+  $("camBtn").classList.toggle("on", on);
+}
+async function startCam() {
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+    toast("这个浏览器用不了摄像头。请用新版 Chrome、Edge 或 Safari，并且从 https 网址打开。", 8000);
+    return;
+  }
+  $("camBtn").disabled = true;
+  $("toast").hidden = true;
+  stopTracks();
+  try {
+    camStream = await openStream();
+  } catch (err) {
+    setCamUI(false);
+    $("camBtn").disabled = false;
+    if (err.name === "NotAllowedError") toast("没拿到摄像头权限。点地址栏左边的图标，允许使用摄像头和麦克风，再点一次「镜头模式」。", 9000);
+    else if (err.name === "NotFoundError") toast("没找到摄像头。");
+    else if (err.name === "NotReadableError") toast("摄像头被别的软件占用了，关掉那个软件再试。", 8000);
+    else toast("摄像头打不开：" + (err.message || err.name), 8000);
+    return;
+  }
+  $("camBtn").disabled = false;
+  $("camVideo").srcObject = camStream;
+  setCamUI(true);
+  listDevices();
+}
+function stopCam() {
+  if (recorder) stopRec();
+  stopTracks();
+  setCamUI(false);
+}
+const toggleCam = () => (camStream ? stopCam() : startCam());
+async function listDevices() {
+  let devs = [];
+  try { devs = await navigator.mediaDevices.enumerateDevices(); } catch (e) {}
+  const now = kind => { const t = camStream && camStream.getTracks().find(t => t.kind === kind); return t ? t.getSettings().deviceId : ""; };
+  const fill = (sel, kind, cur, fallback) => {
+    const list = devs.filter(d => d.kind === kind);
+    sel.innerHTML = list.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || fallback + " " + (i + 1))}</option>`).join("") || `<option value="">没有可用的${fallback}</option>`;
+    if (cur) sel.value = cur;
+    sel.disabled = list.length < 2 || !!recorder;
+  };
+  fill($("camSel"), "videoinput", now("video"), "摄像头");
+  fill($("micSel"), "audioinput", now("audio"), "麦克风");
+}
+
+// 录制：开了倒数就先倒数，倒数完和滚动一起开始
+const REC_TYPES = ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4;codecs=avc1,mp4a", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+function recClick() {
+  if (recorder) { stopRec(); return; }
+  if (!camStream) return;
+  if (!window.MediaRecorder) { toast("这个浏览器不支持在网页里录制。可以照常用它提词，再用系统的录像软件录。", 8000); return; }
+  if (playing) { startRec(); return; }
+  if (countTimer) pause();
+  recArmed = true;
+  play();
+  if (!playing && !countTimer) recArmed = false;
+}
+function startRec() {
+  const type = REC_TYPES.find(t => MediaRecorder.isTypeSupported(t)) || "";
+  let r;
+  try { r = new MediaRecorder(camStream, Object.assign({ videoBitsPerSecond: 8000000 }, type ? { mimeType: type } : {})); }
+  catch (err) { toast("录制没能开始：" + (err.message || err.name)); return; }
+  const chunks = [];
+  r.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  r.onstop = () => {
+    const blob = new Blob(chunks, { type: r.mimeType || type || "video/webm" });
+    if (blob.size) addTake(blob, (Date.now() - recStart) / 1000);
+    else toast("这一条没录到内容。");
+  };
+  r.start(1000);
+  recorder = r; recStart = Date.now();
+  $("recTime").textContent = "0:00";
+  recTimer = setInterval(() => { $("recTime").textContent = fmt((Date.now() - recStart) / 1000); }, 500);
+  setRecUI(true);
+}
+function stopRec() {
+  if (!recorder) return;
+  clearInterval(recTimer);
+  const r = recorder; recorder = null;
+  try { r.stop(); } catch (e) {}
+  pause();
+  setRecUI(false);
+}
+function setRecUI(on) {
+  document.body.classList.toggle("recording", on);
+  $("recBtn").textContent = on ? "■ 停止录制" : "● 录制";
+  $("recBtn").classList.toggle("on", on);
+  $("recStat").hidden = !on;
+  $("camBtn").disabled = on;
+  listDevices();
+}
+const stamp = d => d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0") + "-" + String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0") + String(d.getSeconds()).padStart(2, "0");
+function addTake(blob, dur) {
+  const ext = /mp4/.test(blob.type) ? "mp4" : "webm";
+  const c = current();
+  const base = (c ? c.name : "口播").replace(/^示例\s*·\s*/, "").replace(/[\\/:*?"<>|]/g, "").slice(0, 24) || "口播";
+  takes.push({ url: URL.createObjectURL(blob), name: `${base}-${stamp(new Date())}.${ext}`, dur, size: blob.size, ext, saved: false });
+  renderTakes();
+  $("takes").hidden = false;
+}
+function renderTakes() {
+  $("takeList").innerHTML = takes.map((t, i) => `
+    <li class="take${t.saved ? " saved" : ""}">
+      <span class="t"><b>第 ${i + 1} 条</b>${fmt(t.dur)} · ${(t.size / 1048576).toFixed(1)} MB · ${t.ext}</span>
+      <a class="btn" href="${t.url}" download="${esc(t.name)}" data-i="${i}">保存</a>
+      <button class="btn sq" type="button" data-del="${i}" aria-label="删掉第 ${i + 1} 条">×</button>
+    </li>`).join("");
+  $("takesBtn").hidden = !takes.length;
+  $("takesBtn").textContent = "录好的 " + takes.length + " 条";
+  if (!takes.length) $("takes").hidden = true;
+}
+$("takeList").addEventListener("click", e => {
+  const a = e.target.closest("a[data-i]");
+  if (a) { takes[+a.dataset.i].saved = true; setTimeout(renderTakes, 0); return; }
+  const d = e.target.closest("[data-del]");
+  if (d) { const [t] = takes.splice(+d.dataset.del, 1); URL.revokeObjectURL(t.url); renderTakes(); }
+});
+$("takesClose").addEventListener("click", () => { $("takes").hidden = true; });
+$("takesBtn").addEventListener("click", clickBlur(() => { $("takes").hidden = !$("takes").hidden; }));
+$("camBtn").addEventListener("click", clickBlur(toggleCam));
+$("recBtn").addEventListener("click", clickBlur(recClick));
+$("shadeRange").addEventListener("input", e => { S.shade = +e.target.value; syncControls(); save(); });
+$("camSel").addEventListener("change", e => { S.camId = e.target.value; save(); startCam(); });
+$("micSel").addEventListener("change", e => { S.micId = e.target.value; save(); startCam(); });
+window.addEventListener("beforeunload", e => {
+  if (recorder || takes.some(t => !t.saved)) { e.preventDefault(); e.returnValue = ""; }
+});
+
 let rz = 0;
 window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(applyLayout, 120); });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => applyLayout());
