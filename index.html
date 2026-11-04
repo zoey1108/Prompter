@@ -182,6 +182,13 @@ body.nodir .blk.dir { display: none; }
   box-shadow: 0 0 5vmin 1vmin var(--halo-c, #fff), inset 0 0 5vmin 1vmin var(--halo-c, #fff);
 }
 
+/* 圆环穿过字的地方，深色背景下白字会看不清：给每行字垫一层底 */
+html.haloon .blk.line > span, html.haloon .blk.dir > span {
+  background: color-mix(in srgb, var(--ink) 80%, transparent);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  padding: 0 .12em; border-radius: .12em;
+}
+
 /* 镜头模式：摄像头画面铺在最底层，稿子浮在上面，控制栏变半透明 */
 .camwrap { position: fixed; inset: var(--ring); z-index: 0; background: #000; }
 .camwrap video { display: block; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
@@ -653,7 +660,7 @@ function fillPick() {
 function render() {
   const c = current();
   const items = c ? parse(c.text) : [];
-  script.innerHTML = items.map(b => `<div class="blk ${b.type}" data-type="${b.type}">${esc(b.text)}</div>`).join("");
+  script.innerHTML = items.map(b => `<div class="blk ${b.type}" data-type="${b.type}"><span>${esc(b.text)}</span></div>`).join("");
   $("chars").textContent = estimate(items).chars + " 字";
   blocks = [];
   applyLayout();
@@ -705,6 +712,7 @@ function applyLayout() {
   root.style.setProperty("--halo-w", S.ring * 0.6 + "vmin");
   root.style.setProperty("--halo-c", RING_TONES[S.ringTone]);
   $("halo").hidden = !circle;
+  root.classList.toggle("haloon", circle);
   measure();
   if (keep) {
     const b = blocks.find(b => b.el === keep.el) || blocks[locate(y)];
