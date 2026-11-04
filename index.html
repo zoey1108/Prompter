@@ -171,8 +171,16 @@ body.mirror .script { transform: scaleX(-1); }
 .blk.dir::before { content: "画面　"; color: var(--past); letter-spacing: .1em; }
 body.nodir .blk.dir { display: none; }
 .blk.past.sec, .blk.past.dir { opacity: .45; }
-.stage { z-index: 1; }
-.status { position: relative; z-index: 1; }
+.stage { z-index: 2; }
+.status { position: relative; z-index: 2; }
+
+/* 圆环补光：屏幕正中一个发光的圆圈，像环形补光灯。垫在字下面，不挡字 */
+.halo {
+  position: fixed; z-index: 1; pointer-events: none;
+  left: 50%; top: 50%; width: 96vmin; height: 96vmin; transform: translate(-50%, -50%);
+  border-radius: 50%; border: var(--halo-w, 8vmin) solid var(--halo-c, #fff);
+  box-shadow: 0 0 5vmin 1vmin var(--halo-c, #fff), inset 0 0 5vmin 1vmin var(--halo-c, #fff);
+}
 
 /* 镜头模式：摄像头画面铺在最底层，稿子浮在上面，控制栏变半透明 */
 .camwrap { position: fixed; inset: var(--ring); z-index: 0; background: #000; }
@@ -397,8 +405,12 @@ body.playing .status { opacity: .35; }
         </div>
       </div>
       <div class="row">
-        <label for="ringRange">补光环（屏幕四周一圈白光照脸）</label><span class="val" id="ringVal">关</span>
+        <label for="ringRange">补光环（一圈白光照脸）</label><span class="val" id="ringVal">关</span>
         <input type="range" id="ringRange" min="0" max="20" step="1">
+        <div class="tones" role="group" aria-label="补光形状">
+          <button type="button" class="btn" data-shape="frame">方框·屏幕四周</button>
+          <button type="button" class="btn" data-shape="circle">圆环·屏幕中间</button>
+        </div>
         <div class="tones" role="group" aria-label="补光颜色">
           <button type="button" class="btn" data-tone="cool">冷白</button>
           <button type="button" class="btn" data-tone="white">纯白</button>
@@ -451,6 +463,7 @@ body.playing .status { opacity: .35; }
     </div>
   </div>
 </main>
+<div class="halo" id="halo" aria-hidden="true" hidden></div>
 <div class="guide" id="guide" aria-hidden="true"><div class="band"></div></div>
 
 <footer class="status">
@@ -566,12 +579,13 @@ const S = Object.assign({
   cur: "", fs: narrow ? 34 : 56, cpm: 270, cols: narrow ? 10 : 16,
   line: 33, dirs: true, mirror: false, countdown: true,
   shade: 35, camId: "", micId: "",
-  bg: "ink", ring: 0, ringLast: 8, ringTone: "white"
+  bg: "ink", ring: 0, ringLast: 8, ringTone: "white", ringShape: "frame"
 }, store.get("kb-settings") || {});
 const BG_NAMES = { ink: "深灰", black: "纯黑", navy: "深蓝", paper: "米白", white: "纯白" };
 const RING_TONES = { cool: "#eef5ff", white: "#ffffff", warm: "#ffeccf" };
 if (!BG_NAMES[S.bg]) S.bg = "ink";
 if (!RING_TONES[S.ringTone]) S.ringTone = "white";
+if (S.ringShape !== "circle") S.ringShape = "frame";
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const seedItems = () => SEED.map((s, i) => ({ id: "seed" + i + newId(), name: s.name, text: s.text, t: Date.now() - i }));
@@ -683,9 +697,14 @@ function applyLayout() {
   document.body.classList.toggle("mirror", S.mirror);
   const root = document.documentElement;
   root.dataset.bg = S.bg;
-  root.classList.toggle("ringon", S.ring > 0);
-  root.style.setProperty("--ring", S.ring > 0 ? S.ring + "vmin" : "0px");
-  root.style.setProperty("--ring-bg", S.ring > 0 ? RING_TONES[S.ringTone] : "var(--ink)");
+  // 方框：页面往里缩一圈露出亮边；圆环：正中画一个发光的圈，页面不缩
+  const frame = S.ring > 0 && S.ringShape === "frame", circle = S.ring > 0 && S.ringShape === "circle";
+  root.classList.toggle("ringon", frame);
+  root.style.setProperty("--ring", frame ? S.ring + "vmin" : "0px");
+  root.style.setProperty("--ring-bg", frame ? RING_TONES[S.ringTone] : "var(--ink)");
+  root.style.setProperty("--halo-w", S.ring * 0.6 + "vmin");
+  root.style.setProperty("--halo-c", RING_TONES[S.ringTone]);
+  $("halo").hidden = !circle;
   measure();
   if (keep) {
     const b = blocks.find(b => b.el === keep.el) || blocks[locate(y)];
@@ -789,6 +808,7 @@ function syncControls() {
   $("bgVal").textContent = BG_NAMES[S.bg];
   $("ringRange").value = S.ring; $("ringVal").textContent = S.ring ? "宽 " + S.ring : "关";
   document.querySelectorAll("[data-tone]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tone === S.ringTone)));
+  document.querySelectorAll("[data-shape]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.shape === S.ringShape)));
   document.documentElement.style.setProperty("--shade", S.shade / 100);
 }
 
@@ -1127,6 +1147,10 @@ $("recBtn").addEventListener("click", clickBlur(recClick));
 document.querySelectorAll(".sw").forEach(b => b.addEventListener("click", () => { S.bg = b.dataset.bg; applyLayout(); save(); }));
 function setRing(v) { S.ring = Math.max(0, Math.min(20, v)); if (S.ring) S.ringLast = S.ring; applyLayout(); save(); }
 $("ringRange").addEventListener("input", e => setRing(+e.target.value));
+document.querySelectorAll("[data-shape]").forEach(b => b.addEventListener("click", () => {
+  S.ringShape = b.dataset.shape;
+  if (!S.ring) setRing(S.ringLast || 8); else { applyLayout(); save(); }
+}));
 document.querySelectorAll("[data-tone]").forEach(b => b.addEventListener("click", () => {
   S.ringTone = b.dataset.tone;
   if (!S.ring) setRing(S.ringLast || 8); else { applyLayout(); save(); }
