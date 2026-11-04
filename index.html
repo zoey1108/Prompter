@@ -26,16 +26,33 @@
   --danger: #e2735f;
   --rec: #e5484d;
   --shade: .35;
+  --on-accent: #0f1216;
+  --ring: 0px;
   --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --fs: 56px;
   --cols: 16;
   color-scheme: dark;
 }
+/* 背景颜色：深灰是默认，另有纯黑、深蓝和两种浅色。浅色本身也能给脸补一点光 */
+html[data-bg="black"] { --ink: #000000; --panel: #0c0d0f; --rule: #25282d; --past: #474b52; }
+html[data-bg="navy"] { --ink: #0c1524; --panel: #121d31; --rule: #233149; --past: #46546b; }
+html[data-bg="paper"] {
+  --ink: #f4f0e8; --panel: #fbf9f5; --rule: #d9d1c3; --paper: #1d1f23; --dim: #6f6a62; --past: #b9b2a6;
+  --amber: #a86a12; --amber-soft: rgba(168, 106, 18, 0.10); --danger: #c0442f; color-scheme: light;
+}
+html[data-bg="white"] {
+  --ink: #ffffff; --panel: #f5f5f5; --rule: #dcdcdc; --paper: #111111; --dim: #666666; --past: #bcbcbc;
+  --amber: #a86a12; --amber-soft: rgba(168, 106, 18, 0.10); --danger: #c0442f; color-scheme: light;
+}
 [hidden] { display: none !important; }
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; font-size: 14px; }
 html, body { height: 100%; }
+/* 补光环：整个页面往里缩一圈，露出来的边框就是亮光 */
+html { padding: var(--ring); background: var(--ring-bg, var(--ink)); }
+html.ringon body { border-radius: 16px; }
+html.ringon .camwrap { border-radius: 16px; overflow: hidden; }
 body {
   background: var(--ink);
   color: var(--paper);
@@ -76,11 +93,11 @@ body.playing .bar:hover, body.playing .bar:focus-within { opacity: 1; }
 .btn:disabled { opacity: .4; cursor: default; }
 .btn.sq { width: 32px; padding: 0; }
 .btn.play {
-  background: var(--amber); color: var(--ink); border-color: var(--amber);
+  background: var(--amber); color: var(--on-accent); border-color: var(--amber);
   font-weight: 700; min-width: 84px;
 }
 .btn.warn { color: var(--danger); border-color: rgba(226,115,95,.45); }
-.btn.warn.armed { background: var(--danger); color: var(--ink); border-color: var(--danger); }
+.btn.warn.armed { background: var(--danger); color: var(--on-accent); border-color: var(--danger); }
 .val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: center; }
 select.btn { padding-right: 6px; max-width: min(46vw, 260px); text-overflow: ellipsis; }
 select.btn option { background: var(--panel); }
@@ -91,12 +108,21 @@ details.more > summary::-webkit-details-marker { display: none; }
 .panel {
   position: absolute; right: 0; top: calc(100% + 8px);
   width: min(320px, calc(100vw - 32px));
+  max-height: calc(100vh - 120px - 2 * var(--ring)); overflow-y: auto;
   background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
   padding: 16px; display: grid; gap: 14px;
   box-shadow: 0 12px 32px rgba(0,0,0,.45);
 }
 .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; }
-.row label { font-size: 13px; }
+.row label, .row .rl { font-size: 13px; }
+.swatches, .tones { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.sw {
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: var(--sw); border: 1px solid var(--rule);
+}
+.sw[aria-pressed="true"] { outline: 2px solid var(--amber); outline-offset: 2px; }
+.tones .btn { min-height: 28px; padding: 3px 10px; font-size: 13px; }
+.tones .btn[aria-pressed="true"] { border-color: var(--amber); color: var(--amber); }
 .row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--amber); }
 .row .val { min-width: 0; color: var(--dim); font-size: 13px; }
 .toggle { display: flex; align-items: center; justify-content: space-between; font-size: 13px; cursor: pointer; }
@@ -149,10 +175,15 @@ body.nodir .blk.dir { display: none; }
 .status { position: relative; z-index: 1; }
 
 /* 镜头模式：摄像头画面铺在最底层，稿子浮在上面，控制栏变半透明 */
-.camwrap { position: fixed; inset: 0; z-index: 0; background: #000; }
+.camwrap { position: fixed; inset: var(--ring); z-index: 0; background: #000; }
 .camwrap video { display: block; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 .camwrap .shade { position: absolute; inset: 0; background: rgba(0, 0, 0, var(--shade)); }
-body.cam { background: #000; }
+/* 镜头模式下文字压在画面上，不管选了什么背景色都用深色那套 */
+body.cam {
+  --ink: #0f1216; --panel: #171b21; --rule: #2a3039; --paper: #ece7de; --dim: #7c8592; --past: #4a525d;
+  --amber: #e0a84b; --danger: #e2735f; color-scheme: dark;
+  background: #000;
+}
 body.cam .bar, body.cam .status {
   background: rgba(15, 18, 22, .62); border-color: rgba(255, 255, 255, .08);
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
@@ -176,8 +207,8 @@ body.recording .bar { opacity: 1; }
 /* 录好的视频 */
 .takes {
   position: fixed; z-index: 7;
-  right: max(16px, env(safe-area-inset-right, 0px));
-  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  right: calc(max(16px, env(safe-area-inset-right, 0px)) + var(--ring));
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px) + var(--ring));
   width: min(360px, calc(100vw - 32px));
   background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
   padding: 14px; display: grid; gap: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
@@ -213,7 +244,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 
 /* 阅读线 */
 .guide {
-  position: fixed; left: 0; right: 0; height: 0; z-index: 3; pointer-events: none;
+  position: fixed; left: var(--ring); right: var(--ring); height: 0; z-index: 3; pointer-events: none;
   font-size: var(--fs);
 }
 .guide::before, .guide::after {
@@ -355,6 +386,25 @@ body.playing .status { opacity: .35; }
         <label for="lineRange">阅读线位置</label><span class="val" id="lineVal">屏幕 33%</span>
         <input type="range" id="lineRange" min="15" max="60" step="1">
       </div>
+      <div class="row">
+        <span class="rl">背景颜色</span><span class="val" id="bgVal">深灰</span>
+        <div class="swatches" role="group" aria-label="背景颜色">
+          <button type="button" class="sw" data-bg="ink" style="--sw: #0f1216" title="深灰" aria-label="深灰"></button>
+          <button type="button" class="sw" data-bg="black" style="--sw: #000000" title="纯黑" aria-label="纯黑"></button>
+          <button type="button" class="sw" data-bg="navy" style="--sw: #0c1524" title="深蓝" aria-label="深蓝"></button>
+          <button type="button" class="sw" data-bg="paper" style="--sw: #f4f0e8" title="米白" aria-label="米白"></button>
+          <button type="button" class="sw" data-bg="white" style="--sw: #ffffff" title="纯白" aria-label="纯白"></button>
+        </div>
+      </div>
+      <div class="row">
+        <label for="ringRange">补光环（屏幕四周一圈白光照脸）</label><span class="val" id="ringVal">关</span>
+        <input type="range" id="ringRange" min="0" max="20" step="1">
+        <div class="tones" role="group" aria-label="补光颜色">
+          <button type="button" class="btn" data-tone="cool">冷白</button>
+          <button type="button" class="btn" data-tone="white">纯白</button>
+          <button type="button" class="btn" data-tone="warm">暖光</button>
+        </div>
+      </div>
       <div id="camOpts" hidden>
         <div class="row">
           <label for="shadeRange">镜头画面压暗</label><span class="val" id="shadeVal">35%</span>
@@ -379,7 +429,7 @@ body.playing .status { opacity: .35; }
       <div class="keys">
         <kbd>空格</kbd> 开始/暂停　<kbd>↑</kbd><kbd>↓</kbd> 语速　<kbd>+</kbd><kbd>−</kbd> 字号<br>
         <kbd>Home</kbd> 回到开头　<kbd>E</kbd> 改稿　<kbd>M</kbd> 镜像　<kbd>H</kbd> 画面提示　<kbd>F</kbd> 全屏<br>
-        <kbd>C</kbd> 镜头模式　<kbd>R</kbd> 开始/停止录制<br>
+        <kbd>C</kbd> 镜头模式　<kbd>R</kbd> 开始/停止录制　<kbd>L</kbd> 补光环<br>
         换稿：在页面上直接 <kbd>⌘V</kbd>/<kbd>Ctrl V</kbd> 粘贴，或把 .txt、.md 文件拖进来。<br>
         点稿子任意位置也能开始/暂停，滚轮或手指可以随时拖动。
       </div>
@@ -515,8 +565,13 @@ const store = {
 const S = Object.assign({
   cur: "", fs: narrow ? 34 : 56, cpm: 270, cols: narrow ? 10 : 16,
   line: 33, dirs: true, mirror: false, countdown: true,
-  shade: 35, camId: "", micId: ""
+  shade: 35, camId: "", micId: "",
+  bg: "ink", ring: 0, ringLast: 8, ringTone: "white"
 }, store.get("kb-settings") || {});
+const BG_NAMES = { ink: "深灰", black: "纯黑", navy: "深蓝", paper: "米白", white: "纯白" };
+const RING_TONES = { cool: "#eef5ff", white: "#ffffff", warm: "#ffeccf" };
+if (!BG_NAMES[S.bg]) S.bg = "ink";
+if (!RING_TONES[S.ringTone]) S.ringTone = "white";
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const seedItems = () => SEED.map((s, i) => ({ id: "seed" + i + newId(), name: s.name, text: s.text, t: Date.now() - i }));
@@ -626,6 +681,11 @@ function applyLayout() {
   document.documentElement.style.setProperty("--cols", S.cols);
   document.body.classList.toggle("nodir", !S.dirs);
   document.body.classList.toggle("mirror", S.mirror);
+  const root = document.documentElement;
+  root.dataset.bg = S.bg;
+  root.classList.toggle("ringon", S.ring > 0);
+  root.style.setProperty("--ring", S.ring > 0 ? S.ring + "vmin" : "0px");
+  root.style.setProperty("--ring-bg", S.ring > 0 ? RING_TONES[S.ringTone] : "var(--ink)");
   measure();
   if (keep) {
     const b = blocks.find(b => b.el === keep.el) || blocks[locate(y)];
@@ -725,6 +785,10 @@ function syncControls() {
   $("lineRange").value = S.line; $("lineVal").textContent = "屏幕 " + S.line + "%";
   $("dirChk").checked = S.dirs; $("mirrorChk").checked = S.mirror; $("cdChk").checked = S.countdown;
   $("shadeRange").value = S.shade; $("shadeVal").textContent = S.shade + "%";
+  document.querySelectorAll(".sw").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.bg === S.bg)));
+  $("bgVal").textContent = BG_NAMES[S.bg];
+  $("ringRange").value = S.ring; $("ringVal").textContent = S.ring ? "宽 " + S.ring : "关";
+  document.querySelectorAll("[data-tone]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tone === S.ringTone)));
   document.documentElement.style.setProperty("--shade", S.shade / 100);
 }
 
@@ -899,6 +963,7 @@ document.addEventListener("keydown", e => {
   else if (k === "h" || k === "H") { S.dirs = !S.dirs; applyLayout(); save(); }
   else if (k === "f" || k === "F") fullscreen();
   else if (k === "c" || k === "C") toggleCam();
+  else if (k === "l" || k === "L") setRing(S.ring ? 0 : (S.ringLast || 8));
   else if ((k === "r" || k === "R") && camStream) recClick();
   else if (k === "Escape") $("more").open = false;
 });
@@ -1059,6 +1124,13 @@ $("takesClose").addEventListener("click", () => { $("takes").hidden = true; });
 $("takesBtn").addEventListener("click", clickBlur(() => { $("takes").hidden = !$("takes").hidden; }));
 $("camBtn").addEventListener("click", clickBlur(toggleCam));
 $("recBtn").addEventListener("click", clickBlur(recClick));
+document.querySelectorAll(".sw").forEach(b => b.addEventListener("click", () => { S.bg = b.dataset.bg; applyLayout(); save(); }));
+function setRing(v) { S.ring = Math.max(0, Math.min(20, v)); if (S.ring) S.ringLast = S.ring; applyLayout(); save(); }
+$("ringRange").addEventListener("input", e => setRing(+e.target.value));
+document.querySelectorAll("[data-tone]").forEach(b => b.addEventListener("click", () => {
+  S.ringTone = b.dataset.tone;
+  if (!S.ring) setRing(S.ringLast || 8); else { applyLayout(); save(); }
+}));
 $("shadeRange").addEventListener("input", e => { S.shade = +e.target.value; syncControls(); save(); });
 $("camSel").addEventListener("change", e => { S.camId = e.target.value; save(); startCam(); });
 $("micSel").addEventListener("change", e => { S.micId = e.target.value; save(); startCam(); });
