@@ -27,7 +27,6 @@
   --rec: #e5484d;
   --shade: .35;
   --on-accent: #0f1216;
-  --ring: 0px;
   --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --fs: 56px;
@@ -49,10 +48,6 @@ html[data-bg="white"] {
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; font-size: 14px; }
 html, body { height: 100%; }
-/* 补光环：整个页面往里缩一圈，露出来的边框就是亮光 */
-html { padding: var(--ring); background: var(--ring-bg, var(--ink)); }
-html.ringon body { border-radius: 16px; }
-html.ringon .camwrap { border-radius: 16px; overflow: hidden; }
 body {
   background: var(--ink);
   color: var(--paper);
@@ -108,7 +103,7 @@ details.more > summary::-webkit-details-marker { display: none; }
 .panel {
   position: absolute; right: 0; top: calc(100% + 8px);
   width: min(320px, calc(100vw - 32px));
-  max-height: calc(100vh - 120px - 2 * var(--ring)); overflow-y: auto;
+  max-height: calc(100vh - 120px); overflow-y: auto;
   background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
   padding: 16px; display: grid; gap: 14px;
   box-shadow: 0 12px 32px rgba(0,0,0,.45);
@@ -190,7 +185,7 @@ html.haloon .blk.line > span, html.haloon .blk.dir > span {
 }
 
 /* 镜头模式：摄像头画面铺在最底层，稿子浮在上面，控制栏变半透明 */
-.camwrap { position: fixed; inset: var(--ring); z-index: 0; background: #000; }
+.camwrap { position: fixed; inset: 0; z-index: 0; background: #000; }
 .camwrap video { display: block; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 .camwrap .shade { position: absolute; inset: 0; background: rgba(0, 0, 0, var(--shade)); }
 /* 镜头模式下文字压在画面上，不管选了什么背景色都用深色那套 */
@@ -222,8 +217,8 @@ body.recording .bar { opacity: 1; }
 /* 录好的视频 */
 .takes {
   position: fixed; z-index: 7;
-  right: calc(max(16px, env(safe-area-inset-right, 0px)) + var(--ring));
-  bottom: calc(64px + env(safe-area-inset-bottom, 0px) + var(--ring));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   width: min(360px, calc(100vw - 32px));
   background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
   padding: 14px; display: grid; gap: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
@@ -259,7 +254,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 
 /* 阅读线 */
 .guide {
-  position: fixed; left: var(--ring); right: var(--ring); height: 0; z-index: 3; pointer-events: none;
+  position: fixed; left: 0; right: 0; height: 0; z-index: 3; pointer-events: none;
   font-size: var(--fs);
 }
 .guide::before, .guide::after {
@@ -418,13 +413,9 @@ body.playing .status { opacity: .35; }
         </div>
       </div>
       <div class="row">
-        <label for="ringRange">补光环宽度（拖到最左是关）</label><span class="val" id="ringVal">关</span>
+        <label for="ringRange">补光圆环宽度（拖到最左是关）</label><span class="val" id="ringVal">关</span>
         <input type="range" id="ringRange" min="0" max="30" step="1">
-        <div class="tones" role="group" aria-label="补光形状">
-          <button type="button" class="btn" data-shape="frame">方框·屏幕四周</button>
-          <button type="button" class="btn" data-shape="circle">圆环·屏幕中间</button>
-        </div>
-        <div class="row" id="haloRow" style="grid-column: 1 / -1" hidden>
+        <div class="row" style="grid-column: 1 / -1">
           <label for="haloRange">圆环大小</label><span class="val" id="haloVal">96%</span>
           <input type="range" id="haloRange" min="30" max="100" step="2">
         </div>
@@ -596,13 +587,12 @@ const S = Object.assign({
   cur: "", fs: narrow ? 34 : 56, cpm: 270, cols: narrow ? 10 : 16,
   line: 33, dirs: true, mirror: false, countdown: true,
   shade: 35, camId: "", micId: "",
-  bg: "ink", ring: 0, ringLast: 8, ringTone: "white", ringShape: "frame", haloSize: 96
+  bg: "ink", ring: 0, ringLast: 8, ringTone: "white", haloSize: 96
 }, store.get("kb-settings") || {});
 const BG_NAMES = { ink: "深灰", black: "纯黑", navy: "深蓝", paper: "米白", white: "纯白" };
 const RING_TONES = { cool: "#eef5ff", white: "#ffffff", warm: "#ffeccf" };
 if (!BG_NAMES[S.bg]) S.bg = "ink";
 if (!RING_TONES[S.ringTone]) S.ringTone = "white";
-if (S.ringShape !== "circle") S.ringShape = "frame";
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const seedItems = () => SEED.map((s, i) => ({ id: "seed" + i + newId(), name: s.name, text: s.text, t: Date.now() - i }));
@@ -714,11 +704,8 @@ function applyLayout() {
   document.body.classList.toggle("mirror", S.mirror);
   const root = document.documentElement;
   root.dataset.bg = S.bg;
-  // 方框：页面往里缩一圈露出亮边；圆环：正中画一个发光的圈，页面不缩
-  const frame = S.ring > 0 && S.ringShape === "frame", circle = S.ring > 0 && S.ringShape === "circle";
-  root.classList.toggle("ringon", frame);
-  root.style.setProperty("--ring", frame ? S.ring + "vmin" : "0px");
-  root.style.setProperty("--ring-bg", frame ? RING_TONES[S.ringTone] : "var(--ink)");
+  // 补光圆环：屏幕正中画一个发光的圈
+  const circle = S.ring > 0;
   root.style.setProperty("--halo-w", S.ring + "vmin");
   root.style.setProperty("--halo-d", S.haloSize + "vmin");
   root.style.setProperty("--halo-c", RING_TONES[S.ringTone]);
@@ -828,9 +815,7 @@ function syncControls() {
   $("ringRange").value = S.ring; $("ringVal").textContent = S.ring ? "宽 " + S.ring : "关";
   $("ringBarVal").textContent = S.ring; $("ringGroup").hidden = !S.ring;
   $("haloRange").value = S.haloSize; $("haloVal").textContent = S.haloSize + "%";
-  $("haloRow").hidden = S.ringShape !== "circle";
   document.querySelectorAll("[data-tone]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tone === S.ringTone)));
-  document.querySelectorAll("[data-shape]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.shape === S.ringShape)));
   document.documentElement.style.setProperty("--shade", S.shade / 100);
 }
 
@@ -1174,10 +1159,6 @@ $("ringDown").addEventListener("click", clickBlur(() => setRing(Math.max(1, S.ri
 $("ringUp").addEventListener("click", clickBlur(() => setRing(S.ring + 1)));
 $("haloRange").addEventListener("input", e => { S.haloSize = +e.target.value; applyLayout(); save(); });
 $("ringRange").addEventListener("input", e => setRing(+e.target.value));
-document.querySelectorAll("[data-shape]").forEach(b => b.addEventListener("click", () => {
-  S.ringShape = b.dataset.shape;
-  if (!S.ring) setRing(S.ringLast || 8); else { applyLayout(); save(); }
-}));
 document.querySelectorAll("[data-tone]").forEach(b => b.addEventListener("click", () => {
   S.ringTone = b.dataset.tone;
   if (!S.ring) setRing(S.ringLast || 8); else { applyLayout(); save(); }
